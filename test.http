@@ -1,0 +1,40 @@
+GET http://localhost:3000/chats
+Content-Type: application/json
+
+{
+        "message":"What do I call you?"
+}
+
+###
+POST http://localhost:3000/chats/response/67e7f795d01ad97f3a3dc2c6/chat/507f1f77bcf86cd799439011
+Content-Type: application/json
+
+{
+        "text":"Please how do I pay",
+        "product":[{
+                "minPrice":200,
+                "maxPrice":500
+        }]
+
+        
+}
+
+
+###
+POST http://localhost:3000/chats/mathematical_model
+Content-Type: application/json
+
+{
+    
+}
+###
+POST http://localhost:3000/chats/mathematical_nai_model
+Content-Type: application/json
+
+{
+        "DU":3,
+        "tone":{
+                "sentiment":"negative"
+                ,"confidence":0.1
+                }
+}
