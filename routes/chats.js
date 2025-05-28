@@ -1,7 +1,7 @@
 import express, { response } from "express"
 import axios from 'axios';
 import mongoose from "mongoose"
-import Chats from "../models/chat.js"
+import Chat from "../models/chat.js"
 import { OpenAI } from 'openai';
 
 // mathematical algorithm functions
@@ -11,12 +11,14 @@ import { Ns_b,Xs_b,NSs_b,Xs_b_tend,NSs_b_tend} from '../functions/mathematical_m
 
 import {determineCL,calculatePercentageDiscounts} from '../functions/linguistic_variables/concesstion_level.js'
 
-import {demand_urgency,CL_decreased} from '../functions/others/others.js'
+import {demand_urgency,CL_decreased,chatbot_context,negotiation_strategy,wantCounterOffer,isUserAffirming,removeSymbols} from '../functions/others/others.js'
 import {isNegotiation} from '../functions/others/isnegotiation.js'
 import {isgeneralQuery,isUnknown} from '../functions/others/isgeneralQuery.js'
 import {isIntro} from '../functions/others/isIntro.js'
-import {chatbotResponseFT} from '../functions/others/chatbotResponse.js'
+import {chatbotResponseFT,generalChatbotResponseFT} from '../functions/others/chatbotResponse.js'
 import {updateNegotiation} from '../functions/negotiations/updateNegotiation.js'
+import {core_logic} from '../functions/negotiations/core_logic.js'
+
 
 
 
@@ -45,6 +47,8 @@ const FLASK_API_URL = 'http://127.0.0.1:5000';
 
 
 const router=express.Router();
+
+
 
 
 
@@ -434,6 +438,54 @@ router.post('/mathematical_nai_model',async(req,res)=>{
      
  })
  
+// google translate test
+
+
+
+router.post('/detect-language', async (req, res) => {
+  try {
+    const { text } = req.body.text;
+    
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text is required and must be a string' });
+    }
+
+    // Get access token (you might want to cache this)
+    const authResponse = await axios.post(
+      'https://oauth2.googleapis.com/token',
+      {
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: generateJWT() // You'll need to implement this
+      }
+    );
+
+    const { access_token } = authResponse.data;
+
+    // Call the Language API
+    const apiResponse = await axios.post(
+      'https://language.googleapis.com/v1/documents:detectLanguage',
+      {
+        document: {
+          content: text,
+          type: 'PLAIN_TEXT'
+        }
+      },
+      {
+        params: { key: 'YOUR_API_KEY' }, // Alternative to OAuth
+        headers: { Authorization: `Bearer ${access_token}` }
+      }
+    );
+
+    res.json({
+      text,
+      languageCode: apiResponse.data.languageCode,
+      status: 'success'
+    });
+  } catch (error) {
+    console.error('Error:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: 'Failed to detect language' });
+  }
+});
 
 
 
@@ -471,14 +523,14 @@ router.get('/',async(req,res)=>{
  * Negotiation core logic 
  */
 router.post('/response/:wId/chat/:cId',async(req,res)=>{
-    const message=req.body.text
+    var message=req.body.text
     const chatId=req.params.cId
     const websiteId=req.params.wId 
     const product=req.body.product
-
+    
     console.log(message,product)
     const websiteExists = await Websites.findOne({ _id: new mongoose.Types.ObjectId(websiteId) });
-
+    var chat = await Chat.findOne({ "chat_id": chatId });
     
     // Error validation
     if(!websiteExists)
@@ -491,6 +543,15 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
         res.status(400).json({message:"Invalid product"})
         return
     }
+    else if(!chat)
+    {
+        const newChat =new Chat({
+            chat_id:chatId
+        })
+        chat=await newChat.save()
+    }
+
+
     // res.json(websiteExists)
 
 
@@ -499,6 +560,25 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
 
     try{
 
+         // Detecting user's language
+         const userLanguage=await axios.post(`${FLASK_API_URL}/detect-language`,req.body)
+         console.log(userLanguage.data.language)
+         var languageToRespondWith=userLanguage.data.language
+         // Translate to english if language isn't initially english
+         if(userLanguage.data.language!="en")
+         {
+             req.body.source=userLanguage.data.language
+             req.body.destination="en"
+             var translatedMessage=await axios.post(`${FLASK_API_URL}/translate`,req.body)
+             req.body.text=translatedMessage.data.translated_text
+             message=translatedMessage.data.translated_text
+             
+             console.log(translatedMessage.data.translated_text)
+
+         }
+
+        console.log("Translated message: "+message)
+
         const userintent = await axios.post(`${FLASK_API_URL}/userintent`, req.body);
         const usersentiment = await axios.post(`${FLASK_API_URL}/sentiment`, req.body);
         const usergeneralintent= await axios.post(`${FLASK_API_URL}/generalintent`,req.body)
@@ -506,10 +586,12 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
         const isNegotiationn=isNegotiation(userintent.data,usergeneralintent.data)
         
         const savedFAqs=websiteExists.general_questions
-        const faqsAnswers=savedFAqs.find((item)=>item.category==usergeneralintent.data.class_name)
+
+        const faqsAnswers = savedFAqs.find((item) => item.category == usergeneralintent.data.class_name) || { response: "" }
         
-   
-        // console.log(userintent.data,usergeneralintent.data,isNegotiationn)
+
+        console.log(userintent.data,usergeneralintent.data,isNegotiationn)
+
         // // res.json(userPrice)
         // // return
         // console.log("FAQs"+faqsAnswers.response)
@@ -517,50 +599,202 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
         // await updateNegotiation(message,response,websiteId,chatId)
         // return
 
-        if(isIntro(userintent.data))
+        // Check if this chat had reached a conclusion in the past or concession
+
+        // if(chat.status=="accepted" ||chat.status=="rejected")
+        // {
+
+        //     var context=`
+        //       The buyer is trying to start a conversation, but you both already reached an agreement with the price
+        //       ${chat.last_bot_price}.
+        //     `
+        //     const response=await chatbotResponseFT(message,chat.status,context)
+
+        //     const resp={
+        //         text:response,
+        //         id: new mongoose.Types.ObjectId(),
+        //         status:"accepted",
+        //         timestamp:new Date()
+        //     }
+
+        //     // update negotiations
+ 
+        //     // await updateNegotiation(message,response,websiteId,chatId)
+
+        //     res.json({"response":resp})
+        //     return
+        // }
+
+        if(isIntro(userintent.data,usergeneralintent.data))
         {
             // send introduction reply
             // console.log("Message: "+message)
-            const response=await chatbotResponseFT(message,"intro",faqsAnswers.response)
-            const resp={
-                text:response,
-                id: new mongoose.Types.ObjectId(),
-                status:"active",
-                timestamp:new Date()
-            }
+        
 
-            // update negotiations
-            await updateNegotiation(message,response,websiteId,chatId)
+                const response=await generalChatbotResponseFT(message,"intro",null,languageToRespondWith)
+                console.log("response: "+response)
+                const resp={
+                    text:response,
+                    id: new mongoose.Types.ObjectId(),
+                    status:"active",
+                    timestamp:new Date()
+                }
 
-            res.json({"response":resp})
-            return
+                // update negotiations
+
+                 await updateNegotiation(message,response,websiteId,chatId)
+    
+                res.json({"response":resp})
+                return
+        
+           
         }
         else if(isUnknown(userintent.data))
         {
-            // console.log("Message: "+message)
-            const response=await chatbotResponseFT(message,"unknown")
-            const resp={
-                text:response,
-                id: new mongoose.Types.ObjectId(),
-                status:"active",
-                timestamp:new Date()
+
+            if(isUserAffirming(message))
+            {
+                // check if a previous negotiation exist and accept deal based on latest price
+
+                if(chat.last_bot_price)
+                {
+                    var context=`
+                                The buyer has accepted the deal the seller proposed for this product "${product.name}", with the price:"${chat.last_bot_price}" .
+                                Thank them in a warm way
+                                `
+                    const response=await chatbotResponseFT(message,"agreement",context,languageToRespondWith,product)
+
+                    const resp={
+                        text:response,
+                        id: new mongoose.Types.ObjectId(),
+                        status:"active",
+                        timestamp:new Date()
+                    }
+       
+                    chat.status="accepted"
+                    await chat.save()
+                    // update negotiations
+                   
+                    await updateNegotiation(message,response,websiteId,chatId)
+       
+                    res.json({"response":resp})
+                    return
+                }
+                
+
+                
             }
 
-            res.json({"response":resp})
-            return
+
+             //Can't understand user input or error reply
+             const response=await generalChatbotResponseFT(message,"unknown","Can you clarify what you are talking about?",languageToRespondWith)
+
+             const resp={
+                 text:response,
+                 id: new mongoose.Types.ObjectId(),
+                 status:"active",
+                 timestamp:new Date()
+             }
+
+             // update negotiations
+            
+             // await updateNegotiation(message,response,websiteId,chatId)
+
+             res.json({"response":resp})
+
+             return
         }
-        else if(!isNegotiationn)
+        else if(!isNegotiationn || wantCounterOffer(userintent.data,usergeneralintent.data))
         {
             // 
-            // console.log(usergeneralintent.data)
+            
             // console.log("Is general query: "+isgeneralQuery(usergeneralintent.data))
 
-            if(isgeneralQuery(usergeneralintent.data))
+            if(isgeneralQuery(usergeneralintent.data) && wantCounterOffer(userintent.data,usergeneralintent.data)==false)
             {
                 // retreive important information,by using endpoints to query response from e-commerce website owners
                 // response="General query response"
                 // res.json({response:response})
-                const response=await chatbotResponseFT(message,"General query on an ecommerce website")
+                console.log("FAQ: "+faqsAnswers.response)
+                    const response=await generalChatbotResponseFT(message,usergeneralintent.data.class_name,faqsAnswers.response,languageToRespondWith)
+
+                    const resp={
+                        text:response,
+                        id: new mongoose.Types.ObjectId(),
+                        status:"active",
+                        timestamp:new Date()
+                    }
+                    // update negotiations
+                   
+                    await updateNegotiation(message,response,websiteId,chatId)
+
+                    res.json({"response":resp})
+
+                    return
+        
+                
+            }
+            else if(wantCounterOffer(userintent.data,usergeneralintent.data))
+            {
+                // Suggest counter offer
+
+                const buyerCurrentPrice=0
+
+                console.log("User Price: "+userPrice)
+    
+    
+                console.log("Buyer's price: "+buyerCurrentPrice)
+    
+                
+                const currency="USD"
+                
+                const logic=await core_logic(websiteId,chatId,product,buyerCurrentPrice,usersentiment.data)     
+                console.log(logic)
+                // Define different contexts
+    
+                const contextCount = Math.min(chat.contexts.length, 3);
+                const recentContexts = chat.contexts.slice(-contextCount);
+    
+                console.log("Recent context:"+recentContexts)
+                if (logic.strategy == "end_price_decided") {
+                    var context = `You and the buyer have reached an agreement on this price:${logic.price},for this product: ${product.name}.
+                    You are to use the following negotiation strategy: ${negotiation_strategy(logic.strategy)},the currency in question is ${currency}.
+                    ${contextCount > 0 ? ` Here is previous chat between you both: ${recentContexts},It can give you a better clue of what you have been talking about.` : ""}
+                    `;
+                } else {
+                    var context = `The buyer hasn't suggest a price so you are giving them an offer of: ${logic.price}.
+                    You are to use the following negotiation strategy: ${negotiation_strategy(logic.strategy)},the product name is ${product.name}, the currency in question is ${currency}.
+                    ${contextCount > 0 ? ` Here is previous chat between you both: ${recentContexts},It can give you a better clue of what you have been talking about.` : ""}
+                    `;
+                }
+    
+    
+                // save context
+                chat.contexts.push(`Buyer offered: ${buyerCurrentPrice}, Seller(You) countered: ${logic.price}`);
+                await chat.save()
+    
+                const chat_intent = logic.status === "accepted" ? "accepted" : 
+                              logic.status === "rejected" ? "rejected" : 
+                              "offer";
+                console.log("chatbot intent"+chat_intent)
+                const response=await chatbotResponseFT(message,chat_intent,context,languageToRespondWith,product)
+    
+                const resp={
+                    text:response,
+                    status:"active",
+                    id: new mongoose.Types.ObjectId(),
+                    timestamp:new Date()
+                }
+
+                // update negotiations
+                await updateNegotiation(message,response,websiteId,chatId)
+    
+                res.json({"response":resp})
+            }
+            else{
+
+                //Can't understand user input or error reply
+                const response=await generalChatbotResponseFT(message,"unknown","please this goes out of our scope , we cannot help with")
 
                 const resp={
                     text:response,
@@ -570,18 +804,17 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                 }
 
                 // update negotiations
+               
                 await updateNegotiation(message,response,websiteId,chatId)
 
                 res.json({"response":resp})
-                
-            }
-            else{
-                //Can't understand user input or error reply
-               
+
+                return
             }
         }
         else{
 
+            
             // Collect previous contexts if none exists , initialise new variables
 
 
@@ -589,35 +822,72 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
 
             // Create user price , if they are asks for discount
 
-            const buyerCurrentPrice=userPrice.data.analysis.desired_price.value
+            
+            const buyerCurrentPrice=userPrice.data.analysis.desired_price.value||0
 
             console.log("User Price: "+userPrice)
 
-            if(!buyerCurrentPrice)
-            {
-                console.log("Message: "+message)
-                const response=await chatbotResponseFT(message,"specify price")
+
+            // if(!buyerCurrentPrice)
+            // {
+            //     console.log("Message: "+message)
+            //     const response=await chatbotResponseFT(message,"specify price")
                 
-                const resp={
-                    text:response,
-                    id: new mongoose.Types.ObjectId(),
-                    timestamp:new Date()
-                }
+            //     const resp={
+            //         text:response,
+            //         status:"active",
+            //         id: new mongoose.Types.ObjectId(),
+            //         timestamp:new Date()
+            //     }
 
-                // update negotiations
-                await updateNegotiation(message,response,websiteId,chatId)
+            //     // update negotiations
+            //     await updateNegotiation(message,response,websiteId,chatId)
 
-                res.json({"response":resp})
+            //     res.json({"response":resp})
 
-            }
+            // }
 
 
             console.log("Buyer's price: "+buyerCurrentPrice)
 
-            const response=await chatbotResponseFT(message,"offer",product)
+            
+            const currency="USD"
+            
+            const logic=await core_logic(websiteId,chatId,product,userPrice.data,usersentiment.data)     
+            console.log(logic)
+            // Define different contexts
+            console.log(chat.contexts)
+            
+                const contextCount = Math.min(chat.contexts.length, 3);
+                const recentContexts = chat.contexts.slice(-contextCount);
+                console.log("Recent context:"+recentContexts)
+
+                if (logic.strategy == "end_price_decided") {
+                    var context = `You and the buyer have reached an agreement on this price:${logic.price},for this product: ${product.name}.
+                    You are to use the following negotiation strategy: ${negotiation_strategy(logic.strategy)},the currency in question is ${currency}.
+                    ${contextCount > 0 ? ` Here is previous chat between you both: ${recentContexts},It can give you a better clue of what you have been talking about.` : ""}
+                    `;
+                } else {
+                    var context = `The buyer has suggested this price: ${buyerCurrentPrice},and your counter offer is: ${logic.price}.
+                    You are to use the following negotiation strategy: ${negotiation_strategy(logic.strategy)},the product name is ${product.name}, the currency in question is ${currency}.
+                    ${contextCount > 0 ? ` Here is previous chat between you both: ${recentContexts},It can give you a better clue of what you have been talking about.` : ""}
+                    `;
+                }
+
+
+            // save context
+            chat.contexts.push(`Buyer offered: ${buyerCurrentPrice||0}, Seller(You) countered: ${logic.price}`);
+            await chat.save()
+
+            const chat_intent = logic.status === "accepted" ? "accepted" : 
+                          logic.status === "rejected" ? "rejected" : 
+                          "offer";
+            console.log("chatbot intent: "+chat_intent)
+            const response=await chatbotResponseFT(message,chat_intent,context,languageToRespondWith,product)
 
             const resp={
                 text:response,
+                status:logic.status,
                 id: new mongoose.Types.ObjectId(),
                 timestamp:new Date()
             }
@@ -640,7 +910,7 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
     }
     catch(error)
     {
-        res.status(400).json({message:error})
+        res.status(400).json({message:"Error from backend "+error})
     }
 
 })

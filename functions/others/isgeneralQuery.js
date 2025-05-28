@@ -9,7 +9,7 @@ function isgeneralQuery(generalintent)
       const generalIntentConfidence=generalintent.confidence_score
       const isGeneralIntent=generalintents.includes(generalIntent)
     
-      if(!isGeneralIntent)
+      if(!isGeneralIntent && generalIntentConfidence>=0.5)
       {
         return false
       }

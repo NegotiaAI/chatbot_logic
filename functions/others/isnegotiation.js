@@ -41,6 +41,7 @@ const filteredIntents = negotiationIntents.filter(intent => !excludedIntents.inc
     {
         return true
     }
+   
     else{
         return true
     }

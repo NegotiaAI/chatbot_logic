@@ -38,3 +38,10 @@ Content-Type: application/json
                 ,"confidence":0.1
                 }
 }
+### 
+POST http://localhost:3000/chats/detect-language
+Content-Type: application/json
+
+{
+        "text":"Hola'"
+}
