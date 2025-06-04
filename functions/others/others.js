@@ -177,7 +177,7 @@ function isUserAffirming(input) {
             'proceed to checkout', 'secure checkout', 'pay now', 'confirm transaction',
             'instant buy', 'quick checkout', 'one-click buy', 'fast checkout',
             'i approve', 'i\'ll buy', 'i\'ll pay', 'i\'ll proceed', 'let\'s checkout',
-            'let\'s buy', 'let\'s pay',
+            'let\'s buy', 'let\'s pay','sounds good','good','sounds ok','this price works','price work', 
             // Emojis
             '✅', '✔️', '👍', '🛒', '💳', '📦', '🚀', '🔒', '🤑', '💸'
         ],
@@ -221,6 +221,51 @@ function isUserAffirming(input) {
         );
 }
 
+// Gibberish Text detection
+
+function isGibberish(text) {
+    if (!text || text.trim().length < 3) return false;
+
+    // Normalize the text by removing extra whitespace
+    const normalizedText = text.trim().toLowerCase();
+    const lettersOnly = normalizedText.replace(/[^a-z]/g, '');
+    if (lettersOnly.length < 3) return false;
+
+    // 1. Check for excessive repeated chars (e.g., "aaaaa" - more than 50% repeating)
+    const charCounts = {};
+    for (const char of lettersOnly) {
+        charCounts[char] = (charCounts[char] || 0) + 1;
+    }
+    const maxCharCount = Math.max(...Object.values(charCounts));
+    const repeatedChars = maxCharCount / lettersOnly.length > 0.5;
+
+    // 2. Check for excessive non-alphabetic chars (>50%)
+    const nonAlphaRatio = normalizedText.replace(/[a-z\s]/g, '').length / normalizedText.length;
+
+    // 3. Check for random capitalization (but only if original has mixed case without reason)
+    const hasMixedCase = text !== text.toLowerCase() && text !== text.toUpperCase();
+    const randomCaps = hasMixedCase && !/[A-Z][a-z]/.test(text.replace(/[^a-zA-Z]/g, ''));
+
+    // 4. Check for too many consonants in a row (e.g., "dfghjkl") - increased threshold
+    const excessiveConsonants = /[bcdfghjklmnpqrstvwxyz]{6,}/i.test(text);
+
+    // 5. Check for lack of vowels - more nuanced check
+    const vowelRatio = lettersOnly.replace(/[^aeiouy]/g, '').length / lettersOnly.length;
+    const noVowels = vowelRatio < 0.1; // At least 10% vowels
+
+    // If multiple indicators are present, consider it gibberish
+    const indicators = [
+        repeatedChars,
+        nonAlphaRatio > 0.5,
+        randomCaps,
+        excessiveConsonants,
+        noVowels
+    ];
+    
+    // Require at least 2 indicators to reduce false positives
+    return indicators.filter(Boolean).length >= 2;
+}
+
 //remove symbols
 
 function removeSymbols(text) {
@@ -229,4 +274,4 @@ function removeSymbols(text) {
   }
 
 
-export {demand_urgency,CL_decreased,chatbot_context,negotiation_strategy,wantCounterOffer,isUserAffirming,removeSymbols}
+export {demand_urgency,CL_decreased,chatbot_context,negotiation_strategy,wantCounterOffer,isUserAffirming,removeSymbols,isGibberish}

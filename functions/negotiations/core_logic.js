@@ -20,14 +20,21 @@ import { isNegotiation } from "../others/isnegotiation.js";
 
 const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentiment)=>{
 
-      /**
-       * This core logic returns a counter offer,suggested negotiation strategy (By name) and a negotiation status, update important fields,such as prices amongst others
-       * 
-       */
+    /**
+    * This core logic returns a counter offer,suggested negotiation strategy (By name) and a negotiation status, update important fields,such as prices amongst others
+    * 
+     */
+
+    /**
+     * 
+     * Setting values for DU,CL,t,r,pap
+     */
       const chat = await Chat.findOne({ "chat_id": chat_id });
 
-      console.log(chat)
-    //   Set all posible strings to floats
+    //   make  
+      chat.lastNegotiationWasAbid=true
+
+     //   Set all posible strings to floats
       product.price=parseFloat(product.price)
       product.minPrice=parseFloat(product.minPrice)
 
@@ -57,8 +64,10 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
         // const b_product={min:300,max:390}
         // const s_product={min:250,max:400}
         const r=10
-        // const s_pap=0
-        // const b_pap=0.2
+
+        const s_pap=0
+
+        // const buyer_pap=0.2
         const urgency=product.DU
         if(chat.concessions)
         {
@@ -78,7 +87,7 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
          * with with value the the there is atleast a 1.03% profit made by the business
          * CL for negotiAI's base algorithm is focused on percentage discount by the user and their tone
          */
-     
+        
          console.log("Updated P.K. Haleema and N.Ch.S.N. Iyengar Algorithm, NegotiAI algorithm by N.Dilan K")
          console.log(" ")
          let numericScoreOfSeller=[]
@@ -116,7 +125,8 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
              sellersPrices[0]=0
 
              const value=parseInt(i+1)
-
+             
+             
              if(i==1)
              {
                 var CL="moderate" // look into this value
@@ -149,56 +159,8 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
              //  initial seller price
              const buyersInitialProposal=currentBuyersPrice
              
-             if(i===1)
-             {
-                concessions.push(CL)
-                chat.concessions.push(CL)
-                console.log("concession: "+concessions)
-                // buyersPrices[i]=buyersInitialProposal
-                // sellersPrices[i]=sellersInitialProposal
-                // numericScoreOfBuyer[i]=await NSs_b(s_product,buyersInitialProposal)
-                // numericScoreOfSeller[i]=await NSs_b(s_product,sellersInitialProposal)
-                if(DU=="very_high" || DU=="high")
-                {
-                    var sellersInitialProposal=s_product.max
-                }
-                else{
-                    var sellersInitialProposal=await Ns_b(s_product,r)
-                }
-                 buyersPrices[i]=buyersInitialProposal
-                 sellersPrices[i]=sellersInitialProposal
-                 numericScoreOfBuyer[i]=await NSs_b(s_product,buyersInitialProposal)
-                 numericScoreOfSeller[i]=await NSs_b(s_product,sellersInitialProposal)
-                 // console.log(sellersPrices[i])
-                 // return
-                console.log(" Seller's price: "+sellersPrices[i]+" ...Buyer's Price: "+buyersPrices[i]+ " ... Negotiation round: "+ parseInt(1))
-    
-                const sellerPrices_next=await Xs_b(s_product,r,value,sellersPrices[i]) //
-                const numericScoreOfSeller_next=await NSs_b(s_product,sellerPrices_next) //NSPt+1
-                // sellersPrices[i+1]=sellerPrices_next
-                // console.log("Seller's Next price: "+sellerPrices_next)
-                // console.log("Buyer's price: "+buyersPrices[i])
-                // console.log("Seller Numertic Score: "+numericScoreOfSeller_next,"Buyer numeric score: "+numericScoreOfBuyer[i])
-                
-
-                if(numericScoreOfBuyer[i]>=numericScoreOfSeller_next){
-                    chat.status="accepted"
-                    chat.accepted_price=buyersPrices[i]
-                    await chat.save()
-                    return {price:buyersPrices[i],status:"accepted",strategy:"accept"}
-                }
-
-                chat.n_round=i+1
-                chat.last_bot_price=sellersPrices[i]
-                chat.last_user_price=buyersPrices[i]
-                chat.buyerPrices.push(buyersInitialProposal)
-                chat.status="active"
-                await chat.save()
-                return {price:sellersInitialProposal,status:"active",strategy:"justify"}
-
-             }
-               // Assesments by the seller
-               if(i===r)
+            // Assesments by the seller
+            if(i===r)
                 {
                     const Xs_b_tendp=await Xs_b_tend(s_product,s_pap,sellersPrevPrice)
                     const sellerNumericScoretend= await NSs_b_tend(s_product,s_pap,Xs_b_tendp)
@@ -257,7 +219,57 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
                          return
                     }
                     
+            }
+
+             if(i===1)
+             {
+                concessions.push(CL)
+                chat.concessions.push(CL)
+                console.log("concession: "+concessions)
+                // buyersPrices[i]=buyersInitialProposal
+                // sellersPrices[i]=sellersInitialProposal
+                // numericScoreOfBuyer[i]=await NSs_b(s_product,buyersInitialProposal)
+                // numericScoreOfSeller[i]=await NSs_b(s_product,sellersInitialProposal)
+                if(DU=="very_high" || DU=="high")
+                {
+                    var sellersInitialProposal=s_product.max
                 }
+                else{
+                    var sellersInitialProposal=await Ns_b(s_product,r)
+                }
+                 buyersPrices[i]=buyersInitialProposal
+                 sellersPrices[i]=sellersInitialProposal
+                 numericScoreOfBuyer[i]=await NSs_b(s_product,buyersInitialProposal)
+                 numericScoreOfSeller[i]=await NSs_b(s_product,sellersInitialProposal)
+                 // console.log(sellersPrices[i])
+                 // return
+                console.log(" Seller's price: "+sellersPrices[i]+" ...Buyer's Price: "+buyersPrices[i]+ " ... Negotiation round: "+ parseInt(1))
+    
+                const sellerPrices_next=await Xs_b(s_product,r,value,sellersPrices[i]) //
+                const numericScoreOfSeller_next=await NSs_b(s_product,sellerPrices_next) //NSPt+1
+                // sellersPrices[i+1]=sellerPrices_next
+                // console.log("Seller's Next price: "+sellerPrices_next)
+                // console.log("Buyer's price: "+buyersPrices[i])
+                // console.log("Seller Numertic Score: "+numericScoreOfSeller_next,"Buyer numeric score: "+numericScoreOfBuyer[i])
+                
+
+                if(numericScoreOfBuyer[i]>=numericScoreOfSeller_next){
+                    chat.status="accepted"
+                    chat.accepted_price=buyersPrices[i]
+                    await chat.save()
+                    return {price:buyersPrices[i],status:"accepted",strategy:"accept"}
+                }
+
+                chat.n_round=i+1
+                chat.last_bot_price=sellersPrices[i]
+                chat.last_user_price=buyersPrices[i]
+                chat.buyerPrices.push(buyersInitialProposal)
+                chat.status="active"
+                await chat.save()
+                return {price:sellersInitialProposal,status:"active",strategy:"justify"}
+
+             }
+              
              else if(i>1){
                      //  console.log("CExitd seller price : "+sellersPrices[i])
                    
@@ -320,14 +332,13 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
                      
                       console.log("Seller's Next price: "+sellerPrices_next)
                       console.log("Seller Numertic Score: "+numericScoreOfSeller_next,"Buyer numeric score: "+numericScoreOfBuyer[i])
-                     // console.log("Buyer'Price "+buyersPrices[i])
-                     // console.log(buyersPrices)
-                     // console.log(sellersPrices)
+                     
                      
                      chat.n_round=i+1
                      chat.last_bot_price=sellersPrices[i]
                      chat.last_user_price=buyersPrices[i]
                      chat.buyerPrices.push(currentBuyersPrice)
+                     
                      await chat.save()
                      
                      if(numericScoreOfBuyer[i]>=numericScoreOfSeller_next){
@@ -339,17 +350,12 @@ const core_logic=async(website_id,chat_id,product,currentBuyerPrice,buyersSentim
                         return {price:buyersPrices[i],status:"accepted",strategy:"accept"}
                      }
     
-                     // if(buyersPrices[i]>=sellerPrices_next){
-                     //     console.log("Offer Accepted")
-                     //     return
-                     // }
+                     
                      chat.status="active"
                      await chat.save()
                      return {price:sellersPrices[i],status:"active",strategy:negotiation_strategy}
 
-                    //  console.log(" Seller's price: "+sellersPrices[i]+" ...Buyer's Price: "+buyersPrices[i]+ " ... Negotiation round: "+ parseInt(i))
-                    //  console.log(" ")
-                    //  console.log(" ")
+                    
          }
            
         //  forloop_ends
