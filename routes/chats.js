@@ -11,7 +11,7 @@ import { Ns_b,Xs_b,NSs_b,Xs_b_tend,NSs_b_tend} from '../functions/mathematical_m
 
 import {determineCL,calculatePercentageDiscounts} from '../functions/linguistic_variables/concesstion_level.js'
 
-import {demand_urgency,CL_decreased,chatbot_context,negotiation_strategy,wantCounterOffer,isUserAffirming,removeSymbols} from '../functions/others/others.js'
+import {demand_urgency,CL_decreased,chatbot_context,negotiation_strategy,wantCounterOffer,isUserAffirming,removeSymbols,isGibberish} from '../functions/others/others.js'
 import {isNegotiation} from '../functions/others/isnegotiation.js'
 import {isgeneralQuery,isUnknown} from '../functions/others/isgeneralQuery.js'
 import {isIntro} from '../functions/others/isIntro.js'
@@ -43,7 +43,7 @@ const openai = new OpenAI({
     apiKey:process.env.OPENAI_API_KEY,
 });
 
-const FLASK_API_URL = 'http://127.0.0.1:5000';
+const FLASK_API_URL = process.env.FLASK_API_URL;
 
 
 const router=express.Router();
@@ -523,15 +523,27 @@ router.get('/',async(req,res)=>{
  * Negotiation core logic 
  */
 router.post('/response/:wId/chat/:cId',async(req,res)=>{
+    // Inputs from user
     var message=req.body.text
     const chatId=req.params.cId
     const websiteId=req.params.wId 
-    const product=req.body.product
+    const productId=req.body.productID 
+    console.log(req.body)
+    // product Endpoint,from e-commerce
+    // const product=req.body.product
+    // inputs end
     
-    console.log(message,product)
+    
+
+    // First initialisations 
     const websiteExists = await Websites.findOne({ _id: new mongoose.Types.ObjectId(websiteId) });
     var chat = await Chat.findOne({ "chat_id": chatId });
     
+    // product Endpoint,from e-commerce
+    
+    const productFromEndpoint=await axios.get(`${websiteExists.product_endpoint}${productId}`)
+    const product=productFromEndpoint.data
+    console.log(message,product)
     // Error validation
     if(!websiteExists)
     {
@@ -550,18 +562,18 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
         })
         chat=await newChat.save()
     }
-
-
-    // res.json(websiteExists)
-
-
-    // Validate data from user is valid, from the chat id to request id to input message
+    
 
 
     try{
 
+        /**
+         *  Detect user sentiment and language used
+         */
+
          // Detecting user's language
          const userLanguage=await axios.post(`${FLASK_API_URL}/detect-language`,req.body)
+
          console.log(userLanguage.data.language)
          var languageToRespondWith=userLanguage.data.language
          // Translate to english if language isn't initially english
@@ -592,38 +604,10 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
 
         console.log(userintent.data,usergeneralintent.data,isNegotiationn)
 
-        // // res.json(userPrice)
-        // // return
-        // console.log("FAQs"+faqsAnswers.response)
-        // const response=await chatbotResponseFT(message,"intro")
-        // await updateNegotiation(message,response,websiteId,chatId)
-        // return
+        /**
+         * Examine if user query is negotiation or not
+         */
 
-        // Check if this chat had reached a conclusion in the past or concession
-
-        // if(chat.status=="accepted" ||chat.status=="rejected")
-        // {
-
-        //     var context=`
-        //       The buyer is trying to start a conversation, but you both already reached an agreement with the price
-        //       ${chat.last_bot_price}.
-        //     `
-        //     const response=await chatbotResponseFT(message,chat.status,context)
-
-        //     const resp={
-        //         text:response,
-        //         id: new mongoose.Types.ObjectId(),
-        //         status:"accepted",
-        //         timestamp:new Date()
-        //     }
-
-        //     // update negotiations
- 
-        //     // await updateNegotiation(message,response,websiteId,chatId)
-
-        //     res.json({"response":resp})
-        //     return
-        // }
 
         if(isIntro(userintent.data,usergeneralintent.data))
         {
@@ -649,10 +633,33 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
         
            
         }
+
+        console.log("Is gibberish :" +isGibberish(message))
+
+        if(isGibberish(message))
+            {
+                const response=await generalChatbotResponseFT(message,"gibberish","This is gibberish, please clarify ","en")
+                    console.log("response: "+response)
+                    const resp={
+                        text:response,
+                        id: new mongoose.Types.ObjectId(),
+                        status:"active",
+                        timestamp:new Date()
+                    }
+    
+                    // update negotiations
+    
+                     await updateNegotiation(message,response,websiteId,chatId)
+        
+                    res.json({"response":resp})
+                    return
+            }
         else if(isUnknown(userintent.data))
         {
 
-            if(isUserAffirming(message))
+            // User has to affirm and we need to agree or accept the deal if there is an on going negotiation
+            // hasNegotiationCriteriaForConclusion()
+            if(isUserAffirming(message) &&  chat.lasNegotiationWasAbid==true)
             {
                 // check if a previous negotiation exist and accept deal based on latest price
 
@@ -700,15 +707,16 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
             
              // await updateNegotiation(message,response,websiteId,chatId)
 
+             chat.lastNegotiationWasAbid=false
+             await chat.save()
              res.json({"response":resp})
 
              return
         }
+
+        // if user query is not negotiation 
         else if(!isNegotiationn || wantCounterOffer(userintent.data,usergeneralintent.data))
         {
-            // 
-            
-            // console.log("Is general query: "+isgeneralQuery(usergeneralintent.data))
 
             if(isgeneralQuery(usergeneralintent.data) && wantCounterOffer(userintent.data,usergeneralintent.data)==false)
             {
@@ -728,6 +736,8 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                    
                     await updateNegotiation(message,response,websiteId,chatId)
 
+                    chat.lastNegotiationWasAbid=false
+                    await chat.save()
                     res.json({"response":resp})
 
                     return
@@ -771,6 +781,8 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
     
                 // save context
                 chat.contexts.push(`Buyer offered: ${buyerCurrentPrice}, Seller(You) countered: ${logic.price}`);
+                chat.lastNegotiationWasAbid=true
+            
                 await chat.save()
     
                 const chat_intent = logic.status === "accepted" ? "accepted" : 
@@ -806,12 +818,18 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                 // update negotiations
                
                 await updateNegotiation(message,response,websiteId,chatId)
-
+                chat.lastNegotiationWasAbid=false
+                await chat.save()
                 res.json({"response":resp})
 
                 return
             }
         }
+
+        /**
+         * If user query is negotiation
+         */
+
         else{
 
             
@@ -853,8 +871,11 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
             
             const currency="USD"
             
+            // Core logic
             const logic=await core_logic(websiteId,chatId,product,userPrice.data,usersentiment.data)     
             console.log(logic)
+
+
             // Define different contexts
             console.log(chat.contexts)
             
@@ -874,8 +895,15 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                     `;
                 }
 
+            /**
+             * Save important variables
+             */
+           
+        
+            // update negotiations
+              await updateNegotiation(message,response,websiteId,chatId)
 
-            // save context
+             // save context
             chat.contexts.push(`Buyer offered: ${buyerCurrentPrice||0}, Seller(You) countered: ${logic.price}`);
             await chat.save()
 
@@ -883,6 +911,11 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                           logic.status === "rejected" ? "rejected" : 
                           "offer";
             console.log("chatbot intent: "+chat_intent)
+
+             /**
+             * Generate chatbot response
+             */
+            
             const response=await chatbotResponseFT(message,chat_intent,context,languageToRespondWith,product)
 
             const resp={
@@ -892,8 +925,7 @@ router.post('/response/:wId/chat/:cId',async(req,res)=>{
                 timestamp:new Date()
             }
 
-            // update negotiations
-            await updateNegotiation(message,response,websiteId,chatId)
+          
 
             res.json({"response":resp})
             // res.json({

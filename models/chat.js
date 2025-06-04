@@ -29,6 +29,10 @@ const ChatSchema= new mongoose.Schema({
     concessions:[{
         type:String
     }],
+    lastNegotiationWasAbid:{
+        type:Boolean,
+        default:false
+    },
     buyerPrices:[{
         type:Number,
     }],

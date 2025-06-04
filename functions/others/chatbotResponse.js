@@ -42,7 +42,7 @@ const generalChatbotResponseFT=async function (message,userintent,answer=null,la
            const instructions= `
                                 You are a customer service assistant.
                                 Your name is negotiaAI.
-                                 Do not be cryptic, be engaging.
+                                Do not be cryptic, be engaging.
                                 You are to use the following language which has the following language code :${language} ,to respond to the user 
                                 Use emoji where neccessary, act as humanly as possible,such that it is not noticable .
                                 Be polite at all times.`
@@ -96,7 +96,8 @@ const chatbotResponseFT=async function (message,userintent,context=null,language
                 Here are the product details: 
                 - Name: ${product.name}
                 - Description: ${product.description}
-
+                - Price: ${product.price}
+                -Currency: ${product.currency}
                 If the context does not provide enough information to answer the message, kindly ask the user for clarification.`;
                 
                 const gptResponse = await openai.chat.completions.create({
